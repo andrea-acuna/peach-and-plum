@@ -352,7 +352,7 @@ $conn->close();
 
         .btn-primary-custom {
             background: linear-gradient(135deg, #5C2D43, #EF8C6C);
-            color: #F5EDE4;
+            color: #F5EDE4 !important;
             border: none;
             border-radius: 25px;
             padding: 12px 25px;
@@ -386,7 +386,7 @@ $conn->close();
 
         .btn-outline-custom:hover {
             background: #5C2D43;
-            color: #F5EDE4;
+            color: #F5EDE4 !important;
             text-decoration: none;
         }
 
@@ -610,6 +610,11 @@ $conn->close();
                                 <span>Total</span>
                                 <span>₱<?= number_format($order['total'], 2) ?></span>
                             </div>
+                        </div>
+                        <div class="text-center mt-3">
+                            <a href="products.php" class="btn btn-primary-custom">
+                                <i class="fas fa-shopping-bag"></i> Continue Shopping
+                            </a>
                         </div>
                     </div>
                 </div>
