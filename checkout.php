@@ -10,6 +10,18 @@ if ($conn->connect_error) {
 $user_id = $_SESSION['user_id'] ?? null;
 $session_id = session_id();
 
+// Get user information if logged in
+$user_info = null;
+if ($user_id) {
+    $user_query = "SELECT * FROM users WHERE id = ?";
+    $user_stmt = $conn->prepare($user_query);
+    $user_stmt->bind_param("i", $user_id);
+    $user_stmt->execute();
+    $user_result = $user_stmt->get_result();
+    $user_info = $user_result->fetch_assoc();
+    $user_stmt->close();
+}
+
 // Get cart items with product details
 $cart_query = "
     SELECT c.*, p.name, p.price, p.image
@@ -51,22 +63,22 @@ $errors = [];
 
 if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['place_order'])) {
     // Sanitize inputs
-    $customer_name = trim($_POST['customer_name']);
+    $full_name = trim($_POST['full_name']);
     $email = trim($_POST['email']);
-    $phone = trim($_POST['phone']);
-    $address = trim($_POST['address']);
+    $phone_number = trim($_POST['phone_number']);
+    $street = trim($_POST['street']);
     $city = trim($_POST['city']);
-    $postal_code = trim($_POST['postal_code']);
+    $zip_code = trim($_POST['zip_code']);
     $payment_method = $_POST['payment_method'] ?? '';
     $special_instructions = trim($_POST['special_instructions'] ?? '');
 
     // Basic validation
-    if (!$customer_name) $errors[] = "Customer name is required";
+    if (!$full_name) $errors[] = "Customer name is required";
     if (!$email || !filter_var($email, FILTER_VALIDATE_EMAIL)) $errors[] = "Valid email is required";
-    if (!$phone) $errors[] = "Phone number is required";
-    if (!$address) $errors[] = "Address is required";
+    if (!$phone_number) $errors[] = "phone_number number is required";
+    if (!$street) $errors[] = "street is required";
     if (!$city) $errors[] = "City is required";
-    if (!$postal_code) $errors[] = "Postal code is required";
+    if (!$zip_code) $errors[] = "Postal code is required";
     if (!$payment_method) $errors[] = "Payment method is required";
 
     if (empty($errors)) {
@@ -85,8 +97,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['place_order'])) {
         $insert_order->bind_param(
             "sisssssssssdddd",
             $order_number, $user_id, $session_id,
-            $customer_name, $email, $phone,
-            $address, $city, $postal_code,
+            $full_name, $email, $phone_number,
+            $street, $city, $zip_code,
             $payment_method, $special_instructions,
             $subtotal, $shipping, $tax, $total
         );
@@ -114,6 +126,23 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['place_order'])) {
 
             $insert_item->close();
 
+            // Update user information if logged in and info was modified
+            if ($user_id && $user_info) {
+                $update_user = $conn->prepare("
+                    UPDATE users SET 
+                        full_name = ?, email = ?, phone_number = ?, 
+                        street = ?, city = ?, zip_code = ?
+                    WHERE id = ?
+                ");
+                $update_user->bind_param(
+                    "ssssssi",
+                    $full_name, $email, $phone_number,
+                    $street, $city, $zip_code, $user_id
+                );
+                $update_user->execute();
+                $update_user->close();
+            }
+
             // Clear cart
             $clear_cart = $conn->prepare("DELETE FROM cart WHERE user_id = ? OR session_id = ?");
             $clear_cart->bind_param("is", $user_id, $session_id);
@@ -136,6 +165,18 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST['place_order'])) {
         $insert_order->close();
     }
 }
+
+// Pre-populate form data with user info or POST data
+$form_data = [
+    'full_name' => $_POST['full_name'] ?? ($user_info['full_name'] ?? ''),
+    'email' => $_POST['email'] ?? ($user_info['email'] ?? ''),
+    'phone_number' => $_POST['phone_number'] ?? ($user_info['phone_number'] ?? ''),
+    'street' => $_POST['street'] ?? ($user_info['street'] ?? ''),
+    'city' => $_POST['city'] ?? ($user_info['city'] ?? ''),
+    'zip_code' => $_POST['zip_code'] ?? ($user_info['zip_code'] ?? ''),
+    'payment_method' => $_POST['payment_method'] ?? '',
+    'special_instructions' => $_POST['special_instructions'] ?? ''
+];
 
 // Get cart count for UI badge
 $count_stmt = $conn->prepare("SELECT SUM(quantity) AS total FROM cart WHERE user_id = ? OR session_id = ?");
@@ -307,6 +348,32 @@ $conn->close();
             font-style: italic;
         }
 
+        /* User Info Banner */
+        .user-info-banner {
+            background: linear-gradient(135deg, #EF8C6C, #5C2D43);
+            color: #F5EDE4;
+            padding: 20px;
+            border-radius: 15px;
+            margin-bottom: 30px;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+        }
+
+        .user-info-banner .welcome-text {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+
+        .user-info-banner .info-text {
+            font-size: 0.9rem;
+            opacity: 0.9;
+        }
+
+        .user-info-banner i {
+            margin-right: 8px;
+            font-size: 1.2rem;
+        }
+
         /* Checkout Progress */
         .checkout-progress {
             background: #FFFFFF;
@@ -425,6 +492,11 @@ $conn->close();
             background: white;
         }
 
+        .form-control.pre-filled {
+            background: linear-gradient(135deg, rgba(239, 140, 108, 0.1), rgba(92, 45, 67, 0.1));
+            border-color: #EF8C6C;
+        }
+
         .form-select {
             border: 2px solid #f0f0f0;
             border-radius: 10px;
@@ -442,8 +514,8 @@ $conn->close();
 
         .payment-options {
             display: flex;
-            flex-direction: column; /* Stack items vertically */
-            gap: 10px;              /* Space between each option */
+            flex-direction: column;
+            gap: 10px;
             margin-top: 15px;
         }
 
@@ -799,30 +871,32 @@ $conn->close();
                                 <div class="row">
                                     <div class="col-md-6">
                                         <div class="form-group">
-                                            <label class="form-label" for="customer_name">Full Name *</label>
-                                            <input type="text" class="form-control" id="customer_name" name="customer_name" 
-                                                   value="<?= htmlspecialchars($_POST['customer_name'] ?? '') ?>" required>
+                                            <label class="form-label" for="full_name">Full Name *</label>
+                                            <input type="text" class="form-control <?= $form_data['full_name'] ? 'pre-filled' : '' ?>" 
+                                                   id="full_name" name="full_name" 
+                                                   value="<?= htmlspecialchars($form_data['full_name']) ?>" required>
                                         </div>
                                     </div>
                                     <div class="col-md-6">
                                         <div class="form-group">
                                             <label class="form-label" for="email">Email Address *</label>
-                                            <input type="email" class="form-control" id="email" name="email" 
-                                                   value="<?= htmlspecialchars($_POST['email'] ?? '') ?>" required>
+                                            <input type="email" class="form-control <?= $form_data['email'] ? 'pre-filled' : '' ?>" 
+                                                   id="email" name="email" 
+                                                   value="<?= htmlspecialchars($form_data['email'] ?? '') ?>" required>
                                         </div>
                                     </div>
                                     <div class="col-12">
                                         <div class="form-group">
-                                            <label class="form-label" for="phone">Phone Number *</label>
-                                            <input type="tel" class="form-control" id="phone" name="phone" 
-                                                   value="<?= htmlspecialchars($_POST['phone'] ?? '') ?>" required>
+                                            <label class="form-label" for="phone_number">Phone Number *</label>
+                                            <input type="tel" class="form-control" id="phone_number" name="phone_number" 
+                                                   value="<?= htmlspecialchars($form_data['phone_number'] ?? '') ?>" required>
                                         </div>
                                     </div>
                                 </div>
                             </div>
                         </div>
 
-                        <!-- Shipping Address -->
+                        <!-- Shipping street -->
                         <div class="checkout-section">
                             <div class="section-header">
                                 <i class="fas fa-truck"></i>
@@ -832,23 +906,23 @@ $conn->close();
                                 <div class="row">
                                     <div class="col-12">
                                         <div class="form-group">
-                                            <label class="form-label" for="address">Street Address *</label>
-                                            <input type="text" class="form-control" id="address" name="address" 
-                                                   value="<?= htmlspecialchars($_POST['address'] ?? '') ?>" required>
+                                            <label class="form-label" for="street">Shipping Address *</label>
+                                            <input type="text" class="form-control" id="street" name="street" 
+                                                   value="<?= htmlspecialchars($form_data['street'] ?? '') ?>" required>
                                         </div>
                                     </div>
                                     <div class="col-md-8">
                                         <div class="form-group">
                                             <label class="form-label" for="city">City *</label>
                                             <input type="text" class="form-control" id="city" name="city" 
-                                                   value="<?= htmlspecialchars($_POST['city'] ?? '') ?>" required>
+                                                   value="<?= htmlspecialchars($form_data['city'] ?? '') ?>" required>
                                         </div>
                                     </div>
                                     <div class="col-md-4">
                                         <div class="form-group">
-                                            <label class="form-label" for="postal_code">Postal Code *</label>
-                                            <input type="text" class="form-control" id="postal_code" name="postal_code" 
-                                                   value="<?= htmlspecialchars($_POST['postal_code'] ?? '') ?>" required>
+                                            <label class="form-label" for="zip_code">Postal Code *</label>
+                                            <input type="text" class="form-control" id="zip_code" name="zip_code" 
+                                                   value="<?= htmlspecialchars($form_data['zip_code'] ?? '') ?>" required>
                                         </div>
                                     </div>
                                 </div>
@@ -1007,7 +1081,7 @@ $conn->close();
 
         // Form validation
         document.querySelector('form').addEventListener('submit', function(e) {
-            const requiredFields = ['customer_name', 'email', 'phone', 'address', 'city', 'postal_code'];
+            const requiredFields = ['full_name', 'email', 'phone_number', 'address', 'city', 'zip_code'];
             let hasErrors = false;
             
             requiredFields.forEach(function(fieldName) {
@@ -1036,8 +1110,8 @@ $conn->close();
             }
         });
 
-        // Auto-format phone number
-        document.getElementById('phone').addEventListener('input', function(e) {
+        // Auto-format phone_number number
+        document.getElementById('phone_number').addEventListener('input', function(e) {
             let value = e.target.value.replace(/\D/g, '');
             if (value.length > 0) {
                 if (value.length <= 4) {
